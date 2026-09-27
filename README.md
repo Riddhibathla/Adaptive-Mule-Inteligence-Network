@@ -9,6 +9,9 @@ An AI-powered fraud intelligence prototype for detecting mule-account activity, 
 - 🎙️ **Regional voice assistance**: Supports multilingual guidance and spoken responses for Hindi, Marathi, Tamil, Telugu, Punjabi, Kannada, Bengali, and English.
 - 🔐 **Privacy-first checks**: Results are masked and designed for safe consumer-facing use.
 
+## Login Credentials 
+Email: `analyst@amin.local` and Password: `AMIN-2026!`
+
 ## 🗂️ Folder Architecture
 
 ```text
