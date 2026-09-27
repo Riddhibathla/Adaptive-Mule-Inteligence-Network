@@ -1,0 +1,320 @@
+{
+  "version": "behavior-forest-logistic-v5",
+  "datasetSha256": "7b7788f28d19b44afb0a1005b18cfb65a51dae06f716c476c5f2f19f8458e5bf",
+  "seed": 42,
+  "library": "scikit-learn 1.8.0",
+  "dataProvenance": "bundled demonstration CSV; independently verified bank labels unavailable",
+  "algorithms": {
+    "supervised": "60% Random Forest + 40% scaled Logistic Regression",
+    "anomaly": "Isolation Forest fitted only on safe training rows",
+    "policy": "65% supervised + 10% anomaly + 10% rules + 10% graph + 5% feedback; explicit floors apply"
+  },
+  "features": [
+    "amount",
+    "amount_to_average",
+    "account_velocity",
+    "daily_txn_count",
+    "unique_accounts_on_device",
+    "is_new_beneficiary",
+    "is_upi_high_value"
+  ],
+  "excludedInputs": [
+    "label",
+    "risk_score",
+    "investigator_feedback",
+    "account identifiers",
+    "watchlists",
+    "cyber cases",
+    "graph risk",
+    "feedback risk"
+  ],
+  "splitStrategy": "chronological 60/20/20, earlier rows purged for later sender accounts; no augmentation",
+  "splitCounts": {
+    "train": 20,
+    "validation": 7,
+    "test": 7
+  },
+  "excludedReviewRows": 5,
+  "purgedRows": 1,
+  "thresholdSelection": "highest validation F1; ties prefer 0.5; test set never tunes threshold",
+  "threshold": 0.5,
+  "validation": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "rocAuc": 1.0,
+    "averagePrecision": 1.0,
+    "brierScore": 0.0021,
+    "falsePositiveRate": 0.0,
+    "tp": 3,
+    "fp": 0,
+    "tn": 4,
+    "fn": 0,
+    "samples": 7,
+    "threshold": 0.5
+  },
+  "test": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "rocAuc": 1.0,
+    "averagePrecision": 1.0,
+    "brierScore": 0.0114,
+    "falsePositiveRate": 0.0,
+    "tp": 3,
+    "fp": 0,
+    "tn": 4,
+    "fn": 0,
+    "samples": 7,
+    "threshold": 0.5,
+    "evaluationSet": "untouched chronological demo test set",
+    "validationSamples": 7,
+    "testSamples": 7,
+    "trainingSamples": 20,
+    "datasetRows": 40,
+    "trainingSource": "adaptive_mule_training_dataset.csv",
+    "trainingSources": {
+      "adaptive_mule_training_dataset.csv": 40
+    },
+    "baseline": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "rocAuc": 1.0,
+      "averagePrecision": 1.0,
+      "brierScore": 0.0295,
+      "falsePositiveRate": 0.0,
+      "tp": 3,
+      "fp": 0,
+      "tn": 4,
+      "fn": 0,
+      "samples": 7,
+      "threshold": 0.5
+    },
+    "baselineName": "balanced logistic regression"
+  },
+  "featureImportances": {
+    "amount": 0.2503,
+    "amount_to_average": 0.241,
+    "account_velocity": 0.2046,
+    "daily_txn_count": 0.1096,
+    "unique_accounts_on_device": 0.0974,
+    "is_new_beneficiary": 0.0803,
+    "is_upi_high_value": 0.0168
+  },
+  "limitations": [
+    "Only 40 bundled demo records; scores and test metrics do not establish real-world fraud detection quality.",
+    "Probabilities are not calibrated; anomaly scores are not fraud probabilities.",
+    "Shared devices and counterparties may cross splits; evaluation is not fully network-disjoint.",
+    "CSV historical summaries cannot be independently verified; online history is bounded and cold starts use defaults.",
+    "Graph proximity and feedback are policy signals, not a trained graph neural network or online retraining.",
+    "Kaggle datasets are excluded: their schemas lack the behavioral features required by this model.",
+    "Test metrics evaluate the supervised ensemble, not the final policy blend or identity lookup."
+  ],
+  "runtime": {
+    "trainingMs": 1632.77,
+    "medianInferenceMs": 50.45,
+    "inferenceSamples": 7
+  },
+  "heldOutExamples": [
+    {
+      "exampleId": "TXN0034",
+      "label": "mule",
+      "modelEstimate": 0.9801,
+      "anomalyScore": 71.9,
+      "explanations": [
+        {
+          "feature": "amount_to_average",
+          "value": 8.1,
+          "probabilityDelta": 0.2065
+        },
+        {
+          "feature": "account_velocity",
+          "value": 7.0,
+          "probabilityDelta": 0.1859
+        },
+        {
+          "feature": "amount",
+          "value": 110000.0,
+          "probabilityDelta": 0.178
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 15.0,
+          "probabilityDelta": 0.1127
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0035",
+      "label": "safe",
+      "modelEstimate": 0.0096,
+      "anomalyScore": 47.8,
+      "explanations": [
+        {
+          "feature": "amount",
+          "value": 19000.0,
+          "probabilityDelta": 0.0025
+        },
+        {
+          "feature": "amount_to_average",
+          "value": 1.2,
+          "probabilityDelta": 0.002
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 3.0,
+          "probabilityDelta": 0.0019
+        },
+        {
+          "feature": "account_velocity",
+          "value": 1.0,
+          "probabilityDelta": 0.0
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0036",
+      "label": "false_positive",
+      "modelEstimate": 0.1746,
+      "anomalyScore": 68.0,
+      "explanations": [
+        {
+          "feature": "is_new_beneficiary",
+          "value": 1.0,
+          "probabilityDelta": 0.0672
+        },
+        {
+          "feature": "amount_to_average",
+          "value": 3.8,
+          "probabilityDelta": 0.0622
+        },
+        {
+          "feature": "amount",
+          "value": 53000.0,
+          "probabilityDelta": 0.0549
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 6.0,
+          "probabilityDelta": 0.0455
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0037",
+      "label": "mule",
+      "modelEstimate": 0.7973,
+      "anomalyScore": 63.7,
+      "explanations": [
+        {
+          "feature": "amount_to_average",
+          "value": 7.4,
+          "probabilityDelta": 0.2819
+        },
+        {
+          "feature": "amount",
+          "value": 145000.0,
+          "probabilityDelta": 0.2503
+        },
+        {
+          "feature": "account_velocity",
+          "value": 5.0,
+          "probabilityDelta": 0.2449
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 12.0,
+          "probabilityDelta": 0.1792
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0038",
+      "label": "safe",
+      "modelEstimate": 0.0016,
+      "anomalyScore": 48.6,
+      "explanations": [
+        {
+          "feature": "amount",
+          "value": 2100.0,
+          "probabilityDelta": -0.001
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 1.0,
+          "probabilityDelta": -0.0006
+        },
+        {
+          "feature": "amount_to_average",
+          "value": 0.25,
+          "probabilityDelta": -0.0004
+        },
+        {
+          "feature": "account_velocity",
+          "value": 1.0,
+          "probabilityDelta": 0.0
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0039",
+      "label": "fraud",
+      "modelEstimate": 0.9135,
+      "anomalyScore": 71.9,
+      "explanations": [
+        {
+          "feature": "amount_to_average",
+          "value": 6.2,
+          "probabilityDelta": 0.2342
+        },
+        {
+          "feature": "account_velocity",
+          "value": 5.0,
+          "probabilityDelta": 0.213
+        },
+        {
+          "feature": "amount",
+          "value": 73000.0,
+          "probabilityDelta": 0.1943
+        },
+        {
+          "feature": "unique_accounts_on_device",
+          "value": 5.0,
+          "probabilityDelta": 0.1313
+        }
+      ]
+    },
+    {
+      "exampleId": "TXN0040",
+      "label": "safe",
+      "modelEstimate": 0.0056,
+      "anomalyScore": 39.2,
+      "explanations": [
+        {
+          "feature": "amount",
+          "value": 11800.0,
+          "probabilityDelta": 0.0007
+        },
+        {
+          "feature": "amount_to_average",
+          "value": 0.85,
+          "probabilityDelta": 0.0005
+        },
+        {
+          "feature": "account_velocity",
+          "value": 1.0,
+          "probabilityDelta": 0.0
+        },
+        {
+          "feature": "daily_txn_count",
+          "value": 2.0,
+          "probabilityDelta": 0.0
+        }
+      ]
+    }
+  ]
+}

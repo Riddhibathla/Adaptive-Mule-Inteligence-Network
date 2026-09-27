@@ -18,6 +18,7 @@
           <span data-icon="shield"></span>
           Satark AI
         </a>
+        <button id="signOut" class="text-button" type="button">Sign out</button>
         <button id="pauseStream" class="icon-button" title="Pause stream" aria-label="Pause stream">
           <span data-icon="pause"></span>
         </button>
@@ -146,6 +147,13 @@
           </div>
           <div class="reason-box">
             <h3>ML model breakdown</h3>
+            <details id="modelReportDetails" class="model-report-details">
+              <summary>
+                <span>View evaluation and model report</span>
+                <span class="model-report-caret" aria-hidden="true"></span>
+              </summary>
+              <div id="modelReportContent" class="model-report-content" aria-live="polite"></div>
+            </details>
             <div id="modelBreakdown" class="model-breakdown"></div>
           </div>
           <div class="feedback-actions">

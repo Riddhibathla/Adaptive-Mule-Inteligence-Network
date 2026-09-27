@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#081322" />
+    <title>Secure Access | AMIN</title>
+    <link rel="stylesheet" href="auth.css" />
+  </head>
+  <body class="auth-page">
+    <header class="auth-header">
+      <div>
+        <p class="eyebrow">AMIN control / access management</p>
+        <h1>Adaptive Mule Intelligence Network</h1>
+      </div>
+      <span class="live-pill"><i></i>SECURE SESSION</span>
+    </header>
+
+    <main class="auth-workspace">
+      <section class="access-intro">
+        <div>
+          <p class="eyebrow">Protected workspace</p>
+          <h2>Verify access to fraud operations.</h2>
+          <p>Authenticate before viewing live transaction signals, network intelligence, and investigator workflows.</p>
+        </div>
+        <span class="access-tier">RESTRICTED</span>
+      </section>
+
+      <section class="metrics-strip" aria-label="Access security status">
+        <article class="risk-card safe"><span>Network security</span><strong>Active</strong><small><i></i> Encrypted connection</small></article>
+        <article class="risk-card learning"><span>Verification method</span><strong>2 factors</strong><small>Passphrase + one-time code</small></article>
+        <article class="risk-card review"><span>Session policy</span><strong>30 min</strong><small>Automatic session expiry</small></article>
+      </section>
+
+      <section class="auth-grid">
+        <section class="access-panel panel" aria-labelledby="access-title">
+          <div class="panel-heading"><div><p class="eyebrow">Identity verification</p><h2 id="access-title">Sign in to continue</h2></div><span class="auth-icon" aria-hidden="true">⌁</span></div>
+          <div id="loginStep" class="access-step">
+          <p class="step-description">Use your assigned AMIN access credentials.</p>
+          <form id="loginForm" novalidate>
+            <label>Access ID<input id="accessId" name="username" type="email" autocomplete="username" placeholder="name@organization.com" required /></label>
+            <label>Passphrase<div class="password-field"><input id="passphrase" name="password" type="password" autocomplete="current-password" placeholder="Enter your passphrase" required /><button id="passwordToggle" type="button" aria-label="Show passphrase">Show</button></div></label>
+            <button class="access-button" type="submit"><span>Continue to verification</span><b>→</b></button>
+          </form>
+          <p class="form-status" id="loginStatus" role="status"></p>
+          <p class="system-note">All access events are protected by session controls and two-factor verification.</p>
+        </div>
+
+        <div id="twoFactorStep" class="access-step" hidden>
+          <button id="backToLogin" class="back-button" type="button">← Change credentials</button>
+          <p class="eyebrow">Second-factor verification</p>
+          <h3>Confirm your identity</h3>
+          <p class="step-description">Enter the six-digit code from your secure authenticator.</p>
+          <form id="twoFactorForm" novalidate>
+            <label>Verification code<input id="verificationCode" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required /></label>
+            <button class="access-button" type="submit"><span>Verify and open workspace</span><b>→</b></button>
+          </form>
+          <p class="form-status" id="twoFactorStatus" role="status"></p>
+          <p id="demoCodeHint" class="demo-code-hint" hidden></p>
+        </div>
+        </section>
+
+        <aside class="panel access-protocol">
+          <div class="panel-heading"><div><p class="eyebrow">Access protocol</p><h2>Session controls</h2></div></div>
+          <ol>
+            <li><span>01</span><div><strong>Identity credentials</strong><p>Your assigned access ID and passphrase are verified.</p></div></li>
+            <li><span>02</span><div><strong>Two-factor check</strong><p>A time-bound verification code confirms your session.</p></div></li>
+            <li><span>03</span><div><strong>Restricted workspace</strong><p>Access is granted only to approved operational resources.</p></div></li>
+          </ol>
+          <div class="protocol-footer"><span class="lock-dot">●</span> Session protection active <span>v2.6</span></div>
+        </aside>
+      </section>
+    </main>
+    <script src="auth.js"></script>
+  </body>
+</html>

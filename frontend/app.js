@@ -13,6 +13,7 @@ const state = {
 };
 
 const el = {
+  signOut: document.querySelector("#signOut"),
   pauseStream: document.querySelector("#pauseStream"),
   seedIncident: document.querySelector("#seedIncident"),
   transactionList: document.querySelector("#transactionList"),
@@ -21,6 +22,8 @@ const el = {
   decisionDetail: document.querySelector("#decisionDetail"),
   reasonCodes: document.querySelector("#reasonCodes"),
   modelBreakdown: document.querySelector("#modelBreakdown"),
+  modelReportDetails: document.querySelector("#modelReportDetails"),
+  modelReportContent: document.querySelector("#modelReportContent"),
   metricEvents: document.querySelector("#metricEvents"),
   metricAccounts: document.querySelector("#metricAccounts"),
   metricHeld: document.querySelector("#metricHeld"),
@@ -40,6 +43,11 @@ const el = {
   feedbackStatus: document.querySelector("#feedbackStatus"),
 };
 
+el.signOut?.addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  window.location.assign("/");
+});
+
 const graphView = {
   nodes: [],
   selectedNode: null,
@@ -49,6 +57,7 @@ const graphView = {
 const animatedMetrics = new Map();
 let lastEventId = null;
 let feedbackStatusHoldUntil = 0;
+let modelReportLoaded = false;
 
 async function api(path, options = {}) {
   const response = await fetch(`${API}${path}`, {
@@ -60,6 +69,39 @@ async function api(path, options = {}) {
   }
   return response.json();
 }
+
+function reportMetric(label, value) {
+  return `<div><span>${label}</span><strong>${value ?? "-"}</strong></div>`;
+}
+
+async function loadModelReport() {
+  if (modelReportLoaded || !el.modelReportContent) return;
+  el.modelReportContent.textContent = "Loading evaluation summary…";
+  try {
+    const report = await api("/api/model/report");
+    const test = report.test || {};
+    const splits = report.splitCounts || {};
+    const limitations = (report.limitations || []).slice(0, 2);
+    el.modelReportContent.innerHTML = `
+      <div class="model-report-metrics">
+        ${reportMetric("Held-out F1", test.f1)}
+        ${reportMetric("Precision", test.precision)}
+        ${reportMetric("Recall", test.recall)}
+        ${reportMetric("Test records", test.samples)}
+      </div>
+      <p><strong>Evaluation split:</strong> ${splits.train ?? "-"} training / ${splits.validation ?? "-"} validation / ${splits.test ?? "-"} held-out test records.</p>
+      <p><strong>Decision threshold:</strong> ${report.threshold ?? "-"}. ${report.algorithms?.supervised || ""}</p>
+      ${limitations.length ? `<p class="model-report-note"><strong>Scope:</strong> ${limitations.join(" ")}</p>` : ""}
+    `;
+    modelReportLoaded = true;
+  } catch (error) {
+    el.modelReportContent.textContent = "The evaluation report could not be loaded.";
+  }
+}
+
+el.modelReportDetails?.addEventListener("toggle", () => {
+  if (el.modelReportDetails.open) loadModelReport();
+});
 
 async function loadState() {
   if (state.paused) return;
@@ -177,15 +219,17 @@ function renderDecision(item) {
   const model = item.modelBreakdown || {};
   const validation = state.model.validation || model.validation || {};
   el.modelBreakdown.innerHTML = [
-    ["Fraud probability", model.supervisedProbability !== undefined ? `${Math.round(model.supervisedProbability * 100)}%` : "-"],
+    ["ML estimate (uncalibrated)", model.supervisedProbability !== undefined ? `${Math.round(model.supervisedProbability * 100)}%` : "-"],
     ["Anomaly score", model.anomalyScore ?? "-"],
     ["Graph score", model.graphScore ?? "-"],
     ["Rules score", model.rulesScore ?? "-"],
-    ["Validation F1", validation.f1 ?? "-"],
+    ["Demo test F1", validation.f1 ?? "-"],
+    ["Test examples", validation.testSamples ?? "-"],
     ["Precision/Recall", validation.precision !== undefined ? `${validation.precision}/${validation.recall}` : "-"],
     ["Training data", displayTrainingSource(state.model.trainingSource)],
     ["Feedback boost", model.feedbackBoost ?? "-"],
     ["Model", displayModelName(model.modelVersion)],
+    ["Inference time", model.inferenceMs !== undefined ? `${model.inferenceMs} ms` : "-"],
   ]
     .map(([label, value]) => `<div class="model-chip"><span>${label}</span><strong>${value}</strong></div>`)
     .join("");
@@ -193,12 +237,13 @@ function renderDecision(item) {
 
 function displayTrainingSource(source) {
   if (!source || source === "-") return "-";
-  if (source.includes("adaptive_mule_training_dataset")) return "Adapt dataset";
+  if (source.includes("adaptive_mule_training_dataset")) return "Bundled demo CSV";
   return source.replace(".csv", "");
 }
 
 function displayModelName(version) {
   if (!version || version === "-") return "-";
+  if (version === "behavior-forest-logistic-v5") return "Random Forest + Logistic";
   if (version.includes("dataset-logistic")) return "Dataset logistic v4";
   if (version.includes("logistic")) return "Logistic ensemble";
   return version;
@@ -362,7 +407,7 @@ function render() {
     if (state.filter === "held") return item.score >= 66;
     return true;
   });
-  el.transactionList.innerHTML = filtered.slice(0, 16).map(renderTransaction).join("");
+  el.transactionList.innerHTML = filtered.slice(0, 24).map(renderTransaction).join("");
   el.alertQueue.innerHTML = state.alerts.length ? state.alerts.map(renderAlert).join("") : '<p class="alert-meta">No active escalations.</p>';
   renderDecision(state.latestDecision);
   renderMetrics();

@@ -494,7 +494,41 @@ const state = {
   identityType: "pan",
   language: "en",
   recognition: null,
+  isListening: false,
+  pendingSpeech: null,
   voices: [],
+  lastResult: null,
+};
+
+const LOCALIZED_DIGITS = {
+  "०": "0", "१": "1", "२": "2", "३": "3", "४": "4", "५": "5", "६": "6", "७": "7", "८": "8", "९": "9",
+  "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4", "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9",
+  "௦": "0", "௧": "1", "௨": "2", "௩": "3", "௪": "4", "௫": "5", "௬": "6", "௭": "7", "௮": "8", "௯": "9",
+  "౦": "0", "౧": "1", "౨": "2", "౩": "3", "౪": "4", "౫": "5", "౬": "6", "౭": "7", "౮": "8", "౯": "9",
+  "੦": "0", "੧": "1", "੨": "2", "੩": "3", "੪": "4", "੫": "5", "੬": "6", "੭": "7", "੮": "8", "੯": "9",
+  "೦": "0", "೧": "1", "೨": "2", "೩": "3", "೪": "4", "೫": "5", "೬": "6", "೭": "7", "೮": "8", "೯": "9",
+};
+
+const LOCALIZED_NUMBER_WORDS = {
+  en: { zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", oh: "0", o: "0" },
+  hi: { "शून्य": "0", "एक": "1", "दो": "2", "तीन": "3", "चार": "4", "पांच": "5", "पाँच": "5", "छह": "6", "सात": "7", "आठ": "8", "नौ": "9" },
+  mr: { "शून्य": "0", "एक": "1", "दोन": "2", "तीन": "3", "चार": "4", "पाच": "5", "सहा": "6", "सात": "7", "आठ": "8", "नऊ": "9" },
+  ta: { "பூஜ்யம்": "0", "ஒன்று": "1", "இரண்டு": "2", "மூன்று": "3", "நான்கு": "4", "ஐந்து": "5", "ஆறு": "6", "ஏழு": "7", "எட்டு": "8", "ஒன்பது": "9" },
+  te: { "సున్నా": "0", "ఒకటి": "1", "రెండు": "2", "మూడు": "3", "నాలుగు": "4", "ఐదు": "5", "ఆరు": "6", "ఏడు": "7", "ఎనిమిది": "8", "తొమ్మిది": "9" },
+  pa: { "ਸਿਫ਼ਰ": "0", "ਸਿਫਰ": "0", "ਇੱਕ": "1", "ਇਕ": "1", "ਦੋ": "2", "ਤਿੰਨ": "3", "ਚਾਰ": "4", "ਪੰਜ": "5", "ਛੇ": "6", "ਸੱਤ": "7", "ਅੱਠ": "8", "ਨੌਂ": "9" },
+  kn: { "ಸೊನ್ನೆ": "0", "ಒಂದು": "1", "ಎರಡು": "2", "ಮೂರು": "3", "ನಾಲ್ಕು": "4", "ಐದು": "5", "ಆರು": "6", "ಏಳು": "7", "ಎಂಟು": "8", "ಒಂಬತ್ತು": "9" },
+  bn: { "শূন্য": "0", "এক": "1", "দুই": "2", "তিন": "3", "চার": "4", "পাঁচ": "5", "ছয়": "6", "সাত": "7", "আট": "8", "নয়": "9" },
+};
+
+const VOICE_FALLBACK = {
+  en: "Voice output for the selected language is not installed on this device. You can still use voice input or read the guidance.",
+  hi: "इस डिवाइस पर चुनी गई भाषा की आवाज उपलब्ध नहीं है। आप फिर भी बोलकर नंबर दे सकते हैं या निर्देश पढ़ सकते हैं।",
+  mr: "या डिव्हाइसवर निवडलेल्या भाषेचा आवाज उपलब्ध नाही. तुम्ही तरीही बोलून नंबर देऊ शकता किंवा सूचना वाचू शकता.",
+  ta: "தேர்ந்தெடுத்த மொழிக்கான குரல் இந்த சாதனத்தில் இல்லை. நீங்கள் குரல் உள்ளீட்டைப் பயன்படுத்தலாம் அல்லது வழிகாட்டுதலைப் படிக்கலாம்.",
+  te: "ఎంచుకున్న భాషకు వాయిస్ ఈ పరికరంలో అందుబాటులో లేదు. మీరు వాయిస్ ఇన్‌పుట్‌ను ఉపయోగించవచ్చు లేదా సూచనలను చదవవచ్చు.",
+  pa: "ਚੁਣੀ ਹੋਈ ਭਾਸ਼ਾ ਲਈ ਆਵਾਜ਼ ਇਸ ਡਿਵਾਈਸ 'ਤੇ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਤੁਸੀਂ ਫਿਰ ਵੀ ਬੋਲ ਕੇ ਨੰਬਰ ਦੇ ਸਕਦੇ ਹੋ ਜਾਂ ਹਦਾਇਤਾਂ ਪੜ੍ਹ ਸਕਦੇ ਹੋ।",
+  kn: "ಆಯ್ಕೆ ಮಾಡಿದ ಭಾಷೆಯ ಧ್ವನಿ ಈ ಸಾಧನದಲ್ಲಿ ಲಭ್ಯವಿಲ್ಲ. ನೀವು ಧ್ವನಿ ಇನ್‌ಪುಟ್ ಬಳಸಬಹುದು ಅಥವಾ ಮಾರ್ಗದರ್ಶನವನ್ನು ಓದಬಹುದು.",
+  bn: "নির্বাচিত ভাষার কণ্ঠ এই ডিভাইসে উপলব্ধ নেই। আপনি তবুও ভয়েস ইনপুট ব্যবহার করতে পারেন বা নির্দেশনা পড়তে পারেন।",
 };
 
 const el = {
@@ -526,12 +560,17 @@ function t(key) {
 }
 
 function applyLanguage() {
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    refreshVoices();
+  }
   document.documentElement.lang = state.language;
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
   el.identityInputLabel.textContent = state.identityType === "phone" ? t("phoneLabel") : t("panLabel");
   setStatus(el.statusBadge.dataset.status || "ready");
+  if (state.lastResult) renderResult(state.lastResult, { announce: false });
 }
 
 function statusLabel(status) {
@@ -556,6 +595,13 @@ function translatedRecommendation(status) {
   return t("clearSpeech");
 }
 
+function linkOfficialPortal(text) {
+  return String(text).replace(
+    /cybercrime\.gov\.in/gi,
+    '<a class="official-portal-link" href="https://cybercrime.gov.in/" target="_blank" rel="noopener noreferrer">cybercrime.gov.in</a>',
+  );
+}
+
 function riskBadgeText(status) {
   if (status === "urgent") return t("highRisk");
   if (status === "review") return t("reviewRisk");
@@ -563,7 +609,8 @@ function riskBadgeText(status) {
   return t("lowRisk");
 }
 
-function renderResult(result) {
+function renderResult(result, { announce = true } = {}) {
+  state.lastResult = result;
   const status = result.status || "clear";
   setStatus(status);
   const riskScore = Number(result.riskScore || 0);
@@ -585,7 +632,7 @@ function renderResult(result) {
     <div class="satark-result-copy">
       <span class="satark-risk-badge ${badgeClass}">${riskBadgeText(status)}</span>
       <h2>${result.identifierMask || "Satark AI"}: ${statusLabel(status)}</h2>
-      <p>${result.error || translatedRecommendation(status)}</p>
+      <p>${linkOfficialPortal(result.error || translatedRecommendation(status))}</p>
       ${matches ? `<ul class="satark-match-list">${matches}</ul>` : ""}
     </div>
   `;
@@ -593,8 +640,10 @@ function renderResult(result) {
   renderFlagReasons(status, result);
   el.nextSteps.className = `satark-recommendation ${status}`;
   el.nextSteps.innerHTML = nextStepContent(status);
-  el.resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
-  speak(resultSpeech(result));
+  if (announce) {
+    el.resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    speak(resultSpeech(result));
+  }
 }
 
 function renderFlagReasons(status, result) {
@@ -607,11 +656,11 @@ function renderFlagReasons(status, result) {
 
 function contactList(status) {
   if (status === "clear") {
-    return `<ul class="report-contacts"><li><strong>${t("cyberPortal")}</strong><br>${t("cyberDetail")}</li></ul>`;
+    return `<ul class="report-contacts"><li><strong>${t("cyberPortal")}</strong><br>${linkOfficialPortal(t("cyberDetail"))}</li></ul>`;
   }
   return `
     <ul class="report-contacts">
-      <li><strong>${t("cyberPortal")}</strong><br>${t("cyberDetail")}</li>
+      <li><strong>${t("cyberPortal")}</strong><br>${linkOfficialPortal(t("cyberDetail"))}</li>
       <li><strong>${t("bankContact")}</strong><br>${t("bankDetail")}</li>
     </ul>
   `;
@@ -625,7 +674,7 @@ function nextStepContent(status) {
       : status === "invalid"
         ? t("invalidSpeech")
         : t("safeRecommendation");
-  return `<strong>${t("recommendedAction")}</strong><span>${recommendation}</span>${contactList(status)}`;
+  return `<strong>${t("recommendedAction")}</strong><span>${linkOfficialPortal(recommendation)}</span>${contactList(status)}`;
 }
 
 function resultSpeech(result) {
@@ -654,13 +703,13 @@ function submitSelfCheck(event) {
 }
 
 function normalizeSpeech(text) {
-  const digitWords = {
-    zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9",
-    oh: "0", o: "0",
-  };
-  return text
+  const digitWords = { ...LOCALIZED_NUMBER_WORDS.en, ...(LOCALIZED_NUMBER_WORDS[state.language] || {}) };
+  const normalizedText = Array.from(text || "")
+    .map((character) => LOCALIZED_DIGITS[character] || character)
+    .join("");
+  return normalizedText
     .toLowerCase()
-    .split(/\s+/)
+    .split(/[\s,.-]+/)
     .map((part) => digitWords[part] || part)
     .join("")
     .replace(/[^a-z0-9]/gi, "")
@@ -676,21 +725,26 @@ function speechLang() {
 }
 
 function refreshVoices() {
-  if (!("speechSynthesis" in window)) return;
+  if (!("speechSynthesis" in window)) return [];
   state.voices = window.speechSynthesis.getVoices();
+  return state.voices;
+}
+
+function normaliseLocale(locale) {
+  return String(locale || "").replace("_", "-").toLowerCase();
 }
 
 function preferredVoice() {
   refreshVoices();
-  const lang = speechLang().toLowerCase();
+  const lang = normaliseLocale(speechLang());
   const baseLang = lang.split("-")[0];
-  return state.voices.find((voice) => voice.lang.toLowerCase() === lang)
-    || state.voices.find((voice) => voice.lang.toLowerCase().startsWith(`${baseLang}-`))
-    || state.voices.find((voice) => voice.lang.toLowerCase().startsWith(baseLang))
+  return state.voices.find((voice) => normaliseLocale(voice.lang) === lang)
+    || state.voices.find((voice) => normaliseLocale(voice.lang).split("-")[0] === baseLang)
     || null;
 }
 
 function startVoiceInput() {
+  if (state.isListening) return;
   const SpeechRecognition = recognitionSupported();
   if (!SpeechRecognition) {
     el.voiceStatus.textContent = t("voiceUnsupported");
@@ -699,34 +753,56 @@ function startVoiceInput() {
   }
   const recognition = new SpeechRecognition();
   state.recognition = recognition;
+  state.isListening = true;
+  state.pendingSpeech = null;
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   recognition.lang = speechLang();
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
   el.startVoice.classList.add("listening");
   el.voiceStatus.textContent = t("listening");
-  speak(t("listening"));
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
     const identifier = normalizeSpeech(transcript);
     el.form.elements.identifier.value = identifier;
     el.voiceStatus.textContent = `${t("heard")}: ${identifier}`;
+    recognition.stop();
     runSelfCheck(identifier);
   };
   recognition.onerror = () => {
     el.voiceStatus.textContent = t("voiceUnsupported");
   };
   recognition.onend = () => {
+    state.isListening = false;
+    if (state.recognition === recognition) state.recognition = null;
     el.startVoice.classList.remove("listening");
+    const pendingSpeech = state.pendingSpeech;
+    state.pendingSpeech = null;
+    if (pendingSpeech) speak(pendingSpeech);
   };
   recognition.start();
 }
 
-function speak(text) {
-  if (!("speechSynthesis" in window)) return;
+function speak(text, { showFallback = true, retry = true } = {}) {
+  if (!("speechSynthesis" in window)) return false;
+  if (state.isListening) {
+    state.pendingSpeech = text;
+    return false;
+  }
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = preferredVoice();
-  utterance.lang = speechLang();
+  if (!voice && state.language !== "en") {
+    // Some browsers use an English default voice when no matching voice is installed.
+    // Do not misrepresent that output as the selected language.
+    if (retry && state.voices.length === 0) {
+      window.setTimeout(() => speak(text, { showFallback, retry: false }), 250);
+      return false;
+    }
+    if (showFallback) el.voiceStatus.textContent = VOICE_FALLBACK[state.language] || VOICE_FALLBACK.en;
+    return false;
+  }
+  utterance.lang = voice ? voice.lang : speechLang();
   if (voice) {
     try {
       utterance.voice = voice;
@@ -736,6 +812,7 @@ function speak(text) {
   }
   utterance.rate = 0.9;
   window.speechSynthesis.speak(utterance);
+  return true;
 }
 
 document.querySelectorAll("[data-identity-type]").forEach((button) => {

@@ -150,6 +150,100 @@ h3 {
   padding: 0 11px;
 }
 
+.model-report-details {
+  margin: 10px 0;
+}
+
+.model-report-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 11px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+}
+
+.model-report-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.model-report-details[open] summary {
+  border-color: rgba(22, 96, 100, 0.4);
+  background: var(--surface-soft);
+}
+
+.model-report-caret {
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-right: 2px solid var(--brand);
+  border-bottom: 2px solid var(--brand);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+.model-report-details[open] .model-report-caret {
+  transform: rotate(225deg) translate(-2px, -2px);
+}
+
+.model-report-content {
+  padding: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  background: #fbfcfb;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.model-report-content p {
+  margin: 10px 0 0;
+}
+
+.model-report-content p:first-child {
+  margin-top: 0;
+}
+
+.model-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.model-report-metrics div {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.model-report-metrics span,
+.model-report-metrics strong {
+  display: block;
+}
+
+.model-report-metrics span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.model-report-metrics strong {
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.model-report-note {
+  color: #805d24;
+}
+
 .icon-button {
   width: 40px;
   display: grid;
@@ -1233,6 +1327,17 @@ small {
   max-height: 456px;
   overflow: auto;
   scroll-behavior: smooth;
+}
+
+.stream-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.stream-panel .transaction-list {
+  flex: 1 1 auto;
+  min-height: 456px;
+  max-height: none;
 }
 
 .transaction-item,
@@ -2375,6 +2480,18 @@ canvas {
   margin-top: 6px;
 }
 
+.official-portal-link {
+  color: var(--satark-blue);
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.official-portal-link:hover,
+.official-portal-link:focus-visible {
+  color: var(--satark-green);
+}
+
 .report-contacts {
   display: grid;
   gap: 8px;
@@ -2528,4 +2645,198 @@ canvas {
 .satark-page li,
 .satark-page label {
   letter-spacing: 0;
+}
+
+/* Use Windows' native Indic fonts before the Latin UI stack so glyph metrics stay balanced. */
+.satark-page:lang(hi),
+.satark-page:lang(mr) {
+  font-family: "Nirmala UI", "Noto Sans Devanagari", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(ta) {
+  font-family: "Nirmala UI", "Noto Sans Tamil", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(te) {
+  font-family: "Nirmala UI", "Noto Sans Telugu", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(pa) {
+  font-family: Raavi, "Noto Sans Gurmukhi", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(kn) {
+  font-family: Tunga, "Noto Sans Kannada", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(bn) {
+  font-family: "Nirmala UI", "Noto Sans Bengali", Aptos, "Segoe UI", sans-serif;
+}
+
+.satark-page:lang(hi) h1,
+.satark-page:lang(hi) h2,
+.satark-page:lang(hi) h3,
+.satark-page:lang(hi) strong,
+.satark-page:lang(hi) button,
+.satark-page:lang(hi) input,
+.satark-page:lang(hi) select,
+.satark-page:lang(mr) h1,
+.satark-page:lang(mr) h2,
+.satark-page:lang(mr) h3,
+.satark-page:lang(mr) strong,
+.satark-page:lang(mr) button,
+.satark-page:lang(mr) input,
+.satark-page:lang(mr) select {
+  font-family: inherit;
+}
+
+/* Keep the primary self-check surface inside the first viewport on laptop-height displays. */
+@media (min-width: 881px) and (max-height: 780px) {
+  .satark-header {
+    padding: 8px 0;
+  }
+
+  .satark-back-link,
+  .satark-secure-pill,
+  .satark-page .language-picker {
+    min-height: 38px;
+  }
+
+  .satark-page .language-picker select {
+    min-height: 30px;
+  }
+
+  .satark-shell {
+    padding: 0 0 32px;
+  }
+
+  .satark-detection {
+    min-height: calc(100svh - 54px);
+    gap: 12px;
+    padding: 6px 0 14px;
+  }
+
+  .satark-page .eyebrow {
+    margin-bottom: 2px;
+  }
+
+  .satark-hero-copy h1 {
+    margin-top: 2px;
+    font-size: clamp(42px, 5.8vw, 66px);
+  }
+
+  .satark-hero-copy h2 {
+    max-width: 720px;
+    margin-top: 8px;
+    font-size: clamp(22px, 2.8vw, 32px);
+  }
+
+  .satark-page:lang(hi) .satark-hero-copy h1,
+  .satark-page:lang(mr) .satark-hero-copy h1 {
+    font-size: clamp(40px, 5.2vw, 58px);
+  }
+
+  .satark-page:lang(hi) .satark-hero-copy h2,
+  .satark-page:lang(mr) .satark-hero-copy h2 {
+    max-width: 760px;
+    font-size: clamp(22px, 2.55vw, 29px);
+    line-height: 1.26;
+  }
+
+  .satark-hero-copy p:not(.eyebrow) {
+    display: none;
+  }
+
+  .satark-search-card {
+    gap: 10px;
+    padding: 16px 20px;
+  }
+
+  .satark-inline-status {
+    min-height: 28px;
+    font-size: 12px;
+  }
+
+  .satark-tabs {
+    gap: 6px;
+    padding: 5px;
+    border-radius: 14px;
+  }
+
+  .satark-tabs button {
+    min-height: 42px;
+    border-radius: 10px;
+    font-size: 16px;
+  }
+
+  .satark-input-label {
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  .satark-input-label input {
+    min-height: 52px;
+    border-radius: 14px;
+    font-size: 24px;
+  }
+
+  .satark-consent {
+    grid-template-columns: 20px 1fr;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .satark-consent input {
+    width: 18px;
+    height: 18px;
+  }
+
+  .satark-primary,
+  .satark-voice-button,
+  .satark-soft-button {
+    min-height: 46px;
+    border-radius: 14px;
+    font-size: 15px;
+  }
+
+  .satark-microcopy {
+    font-size: 12px;
+  }
+
+  .satark-assist-panel {
+    gap: 10px;
+    padding: 16px 20px;
+  }
+
+  .satark-assist-top {
+    gap: 8px;
+  }
+
+  .satark-orb,
+  .satark-orb[data-icon] {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    mask-size: 20px;
+  }
+
+  .satark-assist-panel strong {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .satark-assist-panel span {
+    margin-top: 2px;
+    font-size: 14px;
+  }
+
+  .satark-safety-notes {
+    gap: 5px;
+  }
+
+  .satark-safety-notes span {
+    border-radius: 10px;
+    font-size: 12px;
+    padding: 7px 9px;
+  }
 }

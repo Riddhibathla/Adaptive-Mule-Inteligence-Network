@@ -47,19 +47,38 @@ Adaptive Mule Intelligence Network/
 ## 🚀 Run Locally
 
 ```powershell
+python -m pip install -r backend/requirements.txt
 python backend\server.py
 ```
 
 Open:
 
-- 🖥️ Dashboard: `http://127.0.0.1:5173`
+- 🔐 Secure access gateway: `http://127.0.0.1:5173`
+- 🖥️ Dashboard: `http://127.0.0.1:5173/dashboard` (requires authenticated session)
 - 📱 Satark AI: `http://127.0.0.1:5173/selfcheck.html`
 
-No package installation is required; the backend uses Python standard library modules only.
+### Hackathon demo access
+
+The local gateway is intentionally configured with demonstration credentials. Enter
+`analyst@amin.local` and `AMIN-2026!`, then use the displayed six-digit demo code.
+Set `AMIN_DEMO_USER`, `AMIN_DEMO_PASSWORD`, and `AMIN_DEMO_2FA_CODE` before
+starting the server to override them. This is a local demo authentication layer;
+production deployment needs a real identity provider and TOTP or WebAuthn.
+
+Python 3.11+ and scikit-learn are required. The HTTP server uses the Python standard
+library; the backend trains a Random Forest / Logistic Regression ensemble and an
+Isolation Forest once at startup. See [the ML guide](ML_GUIDE.md) for the architecture,
+evaluation, limitations, and a reproducible hackathon demo.
+
+```powershell
+python backend/evaluate_model.py
+python -m unittest discover -s backend/tests -v
+```
 
 ## 🧩 Key APIs
 
 - `GET /api/model` - model metadata and validation profile
+- `GET /api/model/report` - model card, held-out metrics, baseline, and data limitations
 - `GET /api/state` - live dashboard state
 - `POST /api/transactions` - ingest a transaction
 - `POST /api/identity-checks` - run Satark AI PAN/phone misuse check
