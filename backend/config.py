@@ -14,8 +14,10 @@ KAGGLE_PAYSIM_PATH = KAGGLE_ROOT / "PS_20174392719_1491204439457_log.csv"
 ADAPT_INSTRUCTION_PATH = PROJECT_ROOT / "data" / "adapt_instruction_dataset.csv"
 ADAPT_DOWNLOAD_PATH = PROJECT_ROOT / "data" / "adapt_processed_dataset.csv"
 ENV_PATH = BACKEND_ROOT / ".env"
-HOST = os.environ.get("HOST", "0.0.0.0")
-PORT = int(os.environ.get("PORT", 5173))
+HOST = "127.0.0.1"
+PORT = 5173
+#HOST = os.environ.get("HOST", "0.0.0.0")
+#PORT = int(os.environ.get("PORT", 5173))
 
 CHANNELS = ["UPI", "IMPS", "NEFT", "RTGS", "CARD", "WALLET"]
 CITIES = ["Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Kolkata", "Pune", "Jaipur", "Lucknow"]

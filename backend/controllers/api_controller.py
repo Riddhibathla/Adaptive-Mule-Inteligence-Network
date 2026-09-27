@@ -53,6 +53,7 @@ def model_metadata() -> dict:
         "labelDistribution": ENGINE.model.label_distribution,
         "threshold": ENGINE.model.threshold,
         "validation": ENGINE.model.metrics,
+        "modelCard": ENGINE.model.model_card(),
     }
 
 

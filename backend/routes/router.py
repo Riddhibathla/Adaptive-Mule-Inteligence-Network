@@ -34,18 +34,28 @@ def route_get(raw_path: str):
         return safe_adapt_response(lambda: ADAPT_CLIENT.status(dataset_id))
     if path == "/api/model":
         return api.model_metadata(), 200
+    if path == "/api/model/report":
+        return api.ENGINE.model.model_card(), 200
     if path == "/api/state":
         return api.state(), 200
     return NOT_FOUND, 404
 
 
 def route_post(raw_path: str, payload: dict):
+    if not isinstance(payload, dict):
+        return {"error": "Request body must be a JSON object"}, 400
     path = urlparse(raw_path).path
 
     if path == "/api/transactions":
-        return api.ingest_transaction(payload), 201
+        try:
+            return api.ingest_transaction(payload), 201
+        except ValueError as error:
+            return {"error": str(error)}, 400
     if path == "/api/cyber-alerts":
-        return api.ingest_cyber_alert(payload), 201
+        try:
+            return api.ingest_cyber_alert(payload), 201
+        except ValueError as error:
+            return {"error": str(error)}, 400
     if path == "/api/feedback":
         return api.record_feedback(payload), 201
     if path == "/api/identity-checks":

@@ -17,7 +17,9 @@ def stream_transactions() -> None:
     ]
     for forced in seed_events:
         ENGINE.ingest_transaction(ENGINE.generate_transaction(forced))
-    for _ in range(8):
+    # Start with a sufficiently rich live-feed window so the investigator stream
+    # is useful immediately, before the periodic generator adds more events.
+    for _ in range(18):
         ENGINE.ingest_transaction(ENGINE.generate_transaction())
     while ENGINE.running:
         time.sleep(2.2)

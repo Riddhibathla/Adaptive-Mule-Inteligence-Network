@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import csv
 import hashlib
 import math
 import random
 import statistics
 import threading
+import time
 import uuid
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
@@ -14,16 +14,11 @@ from config import (
     CHANNELS,
     CITIES,
     CYBER_CASES,
-    DATASET_PATH,
-    KAGGLE_CREDITCARD_PATH,
-    KAGGLE_PAYSIM_PATH,
     WATCHLISTED_ACCOUNTS,
     WATCHLISTED_DEVICES,
     WATCHLISTED_PHONES,
 )
-
-def sigmoid(value: float) -> float:
-    return 1 / (1 + math.exp(-max(-30, min(30, value))))
+from models.ml_model import AdaptiveRiskModel, behavior_features
 
 
 def clamp(value: float, low: float = 0, high: float = 100) -> float:
@@ -69,6 +64,17 @@ class FeatureStore:
         unique_accounts_on_device = len({item["account"] for item in device_history} | {event["account"]})
         unique_beneficiaries_from_account = len({item["beneficiary"] for item in account_history} | {event["beneficiary"]})
         channel_switches = len({item["channel"] for item in account_history[-8:]} | {event["channel"]})
+        now = datetime.fromisoformat(event["timestamp"])
+        ages = [(now - datetime.fromisoformat(item["timestamp"])).total_seconds() for item in account_history]
+        context = event.get("context", {})
+        average = statistics.mean(item["amount"] for item in account_history) if account_history else 18000
+        behavioral = behavior_features(
+            amount, event["channel"], context.get("averageAmount", average),
+            context.get("hourlyTxnCount", sum(0 <= age < 3600 for age in ages)),
+            context.get("dailyTxnCount", sum(0 <= age < 86400 for age in ages)),
+            context.get("sharedDeviceAccountCount", unique_accounts_on_device),
+            context.get("isNewBeneficiary", not any(item["beneficiary"] == event["beneficiary"] for item in account_history)),
+        )
 
         return {
             "amount": amount,
@@ -90,6 +96,7 @@ class FeatureStore:
             ),
             "graph_score": graph_score,
             "feedback_boost": feedback_boost,
+            **behavioral,
         }
 
     def update(self, event: dict) -> None:
@@ -163,436 +170,6 @@ class GraphIntelligence:
         return entities
 
 
-class LogisticClassifier:
-    def __init__(self, feature_names: list[str]) -> None:
-        self.feature_names = feature_names
-        self.weights = [0.0 for _ in feature_names]
-        self.bias = 0.0
-
-    def fit(self, rows: list[dict], labels: list[int], epochs: int = 80, lr: float = 0.06) -> None:
-        for _ in range(epochs):
-            pairs = list(zip(rows, labels))
-            random.shuffle(pairs)
-            for row, label in pairs:
-                vector = self.vectorize(row)
-                probability = sigmoid(self.bias + sum(weight * value for weight, value in zip(self.weights, vector)))
-                error = probability - label
-                self.bias -= lr * error
-                for index, value in enumerate(vector):
-                    self.weights[index] -= lr * (error * value + 0.002 * self.weights[index])
-
-    def predict_probability(self, row: dict) -> float:
-        vector = self.vectorize(row)
-        return sigmoid(self.bias + sum(weight * value for weight, value in zip(self.weights, vector)))
-
-    def vectorize(self, row: dict) -> list[float]:
-        return [self.transform(name, row.get(name, 0)) for name in self.feature_names]
-
-    @staticmethod
-    def transform(name: str, value: float) -> float:
-        if name == "amount_to_median":
-            return min(float(value), 10) / 10
-        if name == "amount_z":
-            return min(max(float(value), -2), 6) / 6
-        if name in {"account_velocity", "beneficiary_reuse", "device_velocity", "phone_velocity"}:
-            return min(float(value), 12) / 12
-        if name in {"unique_accounts_on_device", "unique_beneficiaries_from_account", "channel_switches"}:
-            return min(float(value), 8) / 8
-        if name in {"graph_score", "feedback_boost"}:
-            return float(value) / 100
-        return float(value)
-
-
-class AdaptiveRiskModel:
-    """Trained supervised model plus anomaly, graph, rules and feedback signals."""
-
-    def __init__(self) -> None:
-        self.version = "trained-logistic-ensemble-v3"
-        self.training_source = "synthetic"
-        self.dataset_rows = 0
-        self.label_distribution: dict[str, int] = {}
-        self.training_sources: dict[str, int] = {}
-        self.feature_names = [
-            "amount_to_median",
-            "amount_z",
-            "account_velocity",
-            "beneficiary_reuse",
-            "device_velocity",
-            "phone_velocity",
-            "unique_accounts_on_device",
-            "unique_beneficiaries_from_account",
-            "channel_switches",
-            "is_upi_high_value",
-            "has_regulatory_case",
-            "watchlist_hit",
-            "graph_score",
-            "feedback_boost",
-        ]
-        self.classifier = LogisticClassifier(self.feature_names)
-        self.threshold = 0.62
-        self.metrics = {}
-        self.train()
-
-    def train(self) -> None:
-        rows, labels = self.load_dataset_training_set()
-        kaggle_rows, kaggle_labels = self.load_kaggle_training_sets()
-        rows = rows + kaggle_rows
-        labels = labels + kaggle_labels
-        synthetic_rows, synthetic_labels = self.synthetic_training_set(500)
-        if rows:
-            self.training_source = "+".join(self.training_sources.keys()) or "local datasets"
-            self.version = "trained-dataset-logistic-ensemble-v4"
-            rows = rows + synthetic_rows
-            labels = labels + synthetic_labels
-        else:
-            rows, labels = synthetic_rows, synthetic_labels
-        combined = list(zip(rows, labels))
-        random.Random(42).shuffle(combined)
-        split = int(len(combined) * 0.78)
-        train_rows, train_labels = zip(*combined[:split])
-        test_rows, test_labels = zip(*combined[split:])
-        self.classifier.fit(list(train_rows), list(train_labels))
-        self.threshold, self.metrics = self.calibrate(list(test_rows), list(test_labels))
-        self.metrics["trainingSource"] = self.training_source
-        self.metrics["datasetRows"] = self.dataset_rows
-        self.metrics["trainingSources"] = self.training_sources
-
-    def load_dataset_training_set(self) -> tuple[list[dict], list[int]]:
-        if not DATASET_PATH.exists():
-            return [], []
-        rows: list[dict] = []
-        labels: list[int] = []
-        label_counts: Counter[str] = Counter()
-        with DATASET_PATH.open("r", encoding="utf-8-sig", newline="") as file:
-            for record in csv.DictReader(file):
-                label = (record.get("label") or "").strip().lower()
-                if not label:
-                    continue
-                label_counts[label] += 1
-                feature_row = self.dataset_record_to_features(record)
-                target = 1 if label in {"review", "mule", "fraud"} else 0
-                rows.append(feature_row)
-                labels.append(target)
-                rows.extend(self.jitter_feature_row(feature_row, label))
-                labels.extend([target] * 3)
-        self.dataset_rows = sum(label_counts.values())
-        self.label_distribution = dict(label_counts)
-        if self.dataset_rows:
-            self.training_sources[DATASET_PATH.name] = self.dataset_rows
-        return rows, labels
-
-    def load_kaggle_training_sets(self) -> tuple[list[dict], list[int]]:
-        rows: list[dict] = []
-        labels: list[int] = []
-        credit_rows, credit_labels, credit_counts = self.load_kaggle_creditcard()
-        paysim_rows, paysim_labels, paysim_counts = self.load_kaggle_paysim()
-        rows.extend(credit_rows)
-        labels.extend(credit_labels)
-        rows.extend(paysim_rows)
-        labels.extend(paysim_labels)
-        for label, count in {**credit_counts, **paysim_counts}.items():
-            self.label_distribution[label] = self.label_distribution.get(label, 0) + count
-        return rows, labels
-
-    def load_kaggle_creditcard(self, max_safe_rows: int = 3000, max_fraud_rows: int = 300, max_scan_rows: int = 90000) -> tuple[list[dict], list[int], dict[str, int]]:
-        if not KAGGLE_CREDITCARD_PATH.exists():
-            return [], [], {}
-        rows: list[dict] = []
-        labels: list[int] = []
-        counts: Counter[str] = Counter()
-        safe_kept = 0
-        fraud_kept = 0
-        sample_index = 0
-        with KAGGLE_CREDITCARD_PATH.open("r", encoding="utf-8-sig", newline="") as file:
-            for record in csv.DictReader(file):
-                sample_index += 1
-                if sample_index > max_scan_rows:
-                    break
-                target = int(float(record.get("Class") or 0))
-                if target == 0 and sample_index % 25 != 0:
-                    continue
-                if target == 0 and safe_kept >= max_safe_rows:
-                    continue
-                if target == 1 and fraud_kept >= max_fraud_rows:
-                    continue
-                if safe_kept >= max_safe_rows and fraud_kept >= max_fraud_rows:
-                    break
-                amount = self.float_field(record, "Amount", 0)
-                time_value = self.float_field(record, "Time", 0)
-                row = {
-                    "amount_to_median": max(0.01, amount / 50),
-                    "amount_z": min(6, max(-1.5, (amount - 80) / 140)),
-                    "account_velocity": min(12, 1 + (time_value % 3600) / 600),
-                    "beneficiary_reuse": 0,
-                    "device_velocity": 1,
-                    "phone_velocity": 1,
-                    "unique_accounts_on_device": 1,
-                    "unique_beneficiaries_from_account": 1,
-                    "channel_switches": 1,
-                    "is_upi_high_value": 0,
-                    "has_regulatory_case": 0,
-                    "watchlist_hit": target,
-                    "graph_score": 65 if target else min(35, amount / 12),
-                    "feedback_boost": 20 if target else 0,
-                }
-                rows.append(row)
-                labels.append(target)
-                if target:
-                    fraud_kept += 1
-                    counts["kaggle_creditcard_fraud"] += 1
-                else:
-                    safe_kept += 1
-                    counts["kaggle_creditcard_safe"] += 1
-        self.dataset_rows += safe_kept + fraud_kept
-        self.training_sources[KAGGLE_CREDITCARD_PATH.name] = safe_kept + fraud_kept
-        return rows, labels, dict(counts)
-
-    def load_kaggle_paysim(self, max_safe_rows: int = 5000, max_fraud_rows: int = 500, max_scan_rows: int = 120000) -> tuple[list[dict], list[int], dict[str, int]]:
-        if not KAGGLE_PAYSIM_PATH.exists():
-            return [], [], {}
-        rows: list[dict] = []
-        labels: list[int] = []
-        counts: Counter[str] = Counter()
-        safe_kept = 0
-        fraud_kept = 0
-        sample_index = 0
-        with KAGGLE_PAYSIM_PATH.open("r", encoding="utf-8-sig", newline="") as file:
-            for record in csv.DictReader(file):
-                sample_index += 1
-                if sample_index > max_scan_rows:
-                    break
-                target = int(float(record.get("isFraud") or 0))
-                if target == 0 and sample_index % 120 != 0:
-                    continue
-                if target == 0 and safe_kept >= max_safe_rows:
-                    continue
-                if target == 1 and fraud_kept >= max_fraud_rows:
-                    continue
-                if safe_kept >= max_safe_rows and fraud_kept >= max_fraud_rows:
-                    break
-                amount = self.float_field(record, "amount", 0)
-                old_origin = self.float_field(record, "oldbalanceOrg", 0)
-                new_origin = self.float_field(record, "newbalanceOrig", 0)
-                old_dest = self.float_field(record, "oldbalanceDest", 0)
-                new_dest = self.float_field(record, "newbalanceDest", 0)
-                txn_type = (record.get("type") or "").upper()
-                cashout = int(txn_type in {"CASH_OUT", "TRANSFER"} and new_origin <= old_origin and amount > 0)
-                balance_delta = abs((old_origin - new_origin) - amount)
-                row = {
-                    "amount_to_median": max(0.01, amount / 10000),
-                    "amount_z": min(6, max(-1.5, (amount - 25000) / 60000)),
-                    "account_velocity": min(12, self.float_field(record, "step", 0) / 24),
-                    "beneficiary_reuse": 1 if old_dest > 0 else 0,
-                    "device_velocity": 1 + cashout,
-                    "phone_velocity": 1,
-                    "unique_accounts_on_device": 1,
-                    "unique_beneficiaries_from_account": 1 + cashout,
-                    "channel_switches": 2 if txn_type in {"TRANSFER", "CASH_OUT"} else 1,
-                    "is_upi_high_value": 0,
-                    "has_regulatory_case": target,
-                    "watchlist_hit": int(target or self.float_field(record, "isFlaggedFraud", 0)),
-                    "graph_score": min(100, cashout * 35 + target * 45 + max(0, 20 - balance_delta / max(amount, 1) * 20)),
-                    "feedback_boost": 20 if target else 0,
-                }
-                rows.append(row)
-                labels.append(target)
-                if target:
-                    fraud_kept += 1
-                    counts["kaggle_paysim_fraud"] += 1
-                else:
-                    safe_kept += 1
-                    counts["kaggle_paysim_safe"] += 1
-        self.dataset_rows += safe_kept + fraud_kept
-        self.training_sources[KAGGLE_PAYSIM_PATH.name] = safe_kept + fraud_kept
-        return rows, labels, dict(counts)
-
-    def dataset_record_to_features(self, record: dict) -> dict:
-        amount_ratio = self.float_field(record, "amount_to_avg_ratio", 1)
-        graph_links = self.float_field(record, "graph_link_count", 0)
-        shared_device = self.float_field(record, "shared_device_account_count", 1)
-        hourly = self.float_field(record, "hourly_txn_count", 0)
-        daily = self.float_field(record, "daily_txn_count", 0)
-        moved_minutes = self.float_field(record, "funds_moved_within_minutes", 999)
-        cashout = self.float_field(record, "cashout_detected", 0)
-        location_mismatch = self.float_field(record, "location_mismatch", 0)
-        return {
-            "amount_to_median": amount_ratio,
-            "amount_z": max(-1.5, min(6, (amount_ratio - 1.0) / 1.45)),
-            "account_velocity": min(12, hourly + daily / 8),
-            "beneficiary_reuse": 0 if self.float_field(record, "is_new_beneficiary", 0) else min(5, graph_links / 2),
-            "device_velocity": min(14, shared_device + hourly / 3),
-            "phone_velocity": min(12, shared_device + daily / 10),
-            "unique_accounts_on_device": max(1, shared_device),
-            "unique_beneficiaries_from_account": min(8, graph_links + cashout * 2),
-            "channel_switches": min(5, 1 + location_mismatch + cashout),
-            "is_upi_high_value": int((record.get("channel") or "").upper() == "UPI" and self.float_field(record, "amount", 0) > 45000),
-            "has_regulatory_case": int(self.float_field(record, "is_cyber_alert_match", 0) > 0),
-            "watchlist_hit": int(self.float_field(record, "is_watchlisted_account", 0) > 0 or self.float_field(record, "is_watchlisted_device", 0) > 0),
-            "graph_score": min(100, graph_links * 9 + shared_device * 4 + cashout * 12 + max(0, 10 - moved_minutes) * 1.5),
-            "feedback_boost": 30 if (record.get("investigator_feedback") or "").lower() in {"confirmed_mule", "confirmed_fraud"} else 0,
-        }
-
-    def jitter_feature_row(self, row: dict, label: str) -> list[dict]:
-        rng = random.Random(hash(label + str(row.get("graph_score"))) & 0xFFFFFFFF)
-        variants = []
-        for _ in range(3):
-            variant = dict(row)
-            variant["amount_to_median"] = max(0.01, variant["amount_to_median"] * rng.uniform(0.88, 1.12))
-            variant["amount_z"] = max(-2, min(6, variant["amount_z"] + rng.uniform(-0.25, 0.25)))
-            variant["account_velocity"] = max(0, variant["account_velocity"] + rng.uniform(-0.7, 0.7))
-            variant["device_velocity"] = max(0, variant["device_velocity"] + rng.uniform(-0.7, 0.7))
-            variant["graph_score"] = clamp(variant["graph_score"] + rng.uniform(-6, 6))
-            variants.append(variant)
-        return variants
-
-    @staticmethod
-    def float_field(record: dict, key: str, default: float = 0) -> float:
-        try:
-            value = record.get(key)
-            if value in {None, ""}:
-                return default
-            return float(value)
-        except ValueError:
-            return default
-
-    def synthetic_training_set(self, size: int) -> tuple[list[dict], list[int]]:
-        rng = random.Random(7)
-        rows: list[dict] = []
-        labels: list[int] = []
-        for _ in range(size):
-            fraud = rng.random() < 0.36
-            if fraud:
-                row = {
-                    "amount_to_median": rng.uniform(1.3, 11.0),
-                    "amount_z": rng.uniform(0.4, 6.0),
-                    "account_velocity": rng.randint(0, 12),
-                    "beneficiary_reuse": rng.randint(0, 8),
-                    "device_velocity": rng.randint(1, 14),
-                    "phone_velocity": rng.randint(1, 12),
-                    "unique_accounts_on_device": rng.randint(1, 9),
-                    "unique_beneficiaries_from_account": rng.randint(1, 8),
-                    "channel_switches": rng.randint(1, 5),
-                    "is_upi_high_value": int(rng.random() < 0.52),
-                    "has_regulatory_case": int(rng.random() < 0.42),
-                    "watchlist_hit": int(rng.random() < 0.5),
-                    "graph_score": rng.uniform(18, 100),
-                    "feedback_boost": rng.choice([0, 0, 15, 35, 55]),
-                }
-                if rng.random() < 0.18:
-                    row["amount_to_median"] = rng.uniform(0.7, 2.4)
-                    row["amount_z"] = rng.uniform(-0.4, 1.4)
-                    row["graph_score"] = rng.uniform(8, 38)
-            else:
-                row = {
-                    "amount_to_median": rng.uniform(0.05, 4.2),
-                    "amount_z": rng.uniform(-1.4, 2.7),
-                    "account_velocity": rng.randint(0, 6),
-                    "beneficiary_reuse": rng.randint(0, 4),
-                    "device_velocity": rng.randint(0, 5),
-                    "phone_velocity": rng.randint(0, 5),
-                    "unique_accounts_on_device": rng.randint(1, 4),
-                    "unique_beneficiaries_from_account": rng.randint(1, 5),
-                    "channel_switches": rng.randint(1, 4),
-                    "is_upi_high_value": int(rng.random() < 0.18),
-                    "has_regulatory_case": int(rng.random() < 0.06),
-                    "watchlist_hit": int(rng.random() < 0.08),
-                    "graph_score": rng.uniform(0, 46),
-                    "feedback_boost": rng.choice([0, 0, 0, 8]),
-                }
-                if rng.random() < 0.1:
-                    row["amount_to_median"] = rng.uniform(3, 6)
-                    row["amount_z"] = rng.uniform(1.3, 2.6)
-                    row["graph_score"] = rng.uniform(22, 55)
-            rows.append(row)
-            noisy_label = int(fraud)
-            if rng.random() < 0.045:
-                noisy_label = 1 - noisy_label
-            labels.append(noisy_label)
-        return rows, labels
-
-    def calibrate(self, rows: list[dict], labels: list[int]) -> tuple[float, dict]:
-        best_threshold = 0.62
-        best_f1 = -1.0
-        best_metrics = {}
-        probabilities = [self.classifier.predict_probability(row) for row in rows]
-        for threshold in [index / 100 for index in range(35, 86)]:
-            metrics = self.evaluate_probabilities(probabilities, labels, threshold)
-            if metrics["f1"] > best_f1:
-                best_f1 = metrics["f1"]
-                best_threshold = threshold
-                best_metrics = metrics
-        best_metrics["threshold"] = best_threshold
-        best_metrics["validationSamples"] = len(rows)
-        return best_threshold, best_metrics
-
-    @staticmethod
-    def evaluate_probabilities(probabilities: list[float], labels: list[int], threshold: float) -> dict:
-        tp = fp = tn = fn = 0
-        for probability, label in zip(probabilities, labels):
-            predicted = int(probability >= threshold)
-            if predicted and label:
-                tp += 1
-            elif predicted and not label:
-                fp += 1
-            elif not predicted and not label:
-                tn += 1
-            else:
-                fn += 1
-        precision = tp / max(tp + fp, 1)
-        recall = tp / max(tp + fn, 1)
-        f1 = 2 * precision * recall / max(precision + recall, 1e-9)
-        accuracy = (tp + tn) / max(tp + tn + fp + fn, 1)
-        return {
-            "accuracy": round(accuracy, 3),
-            "precision": round(precision, 3),
-            "recall": round(recall, 3),
-            "f1": round(f1, 3),
-            "tp": tp,
-            "fp": fp,
-            "tn": tn,
-            "fn": fn,
-        }
-
-    def predict(self, features: dict) -> dict:
-        supervised_probability = self.classifier.predict_probability(features)
-
-        anomaly_score = clamp(
-            max(features["amount_z"], 0) * 13
-            + min(features["amount_to_median"], 8) * 3
-            + min(features["channel_switches"], 5) * 4
-            + min(features["unique_beneficiaries_from_account"], 8) * 3
-        )
-
-        rules_score = clamp(
-            features["watchlist_hit"] * 32
-            + features["has_regulatory_case"] * 27
-            + features["is_upi_high_value"] * 13
-            + min(features["device_velocity"], 8) * 4
-            + min(features["beneficiary_reuse"], 5) * 4
-        )
-
-        threshold_lift = clamp((supervised_probability - self.threshold) / max(1 - self.threshold, 0.01) * 100)
-        ensemble_score = clamp(
-            supervised_probability * 54
-            + anomaly_score * 0.16
-            + rules_score * 0.18
-            + features["graph_score"] * 0.18
-            + features["feedback_boost"] * 0.12
-            + threshold_lift * 0.12
-        )
-
-        return {
-            "supervisedProbability": round(supervised_probability, 3),
-            "anomalyScore": round(anomaly_score, 1),
-            "rulesScore": round(rules_score, 1),
-            "graphScore": round(features["graph_score"], 1),
-            "feedbackBoost": round(features["feedback_boost"], 1),
-            "ensembleScore": round(ensemble_score, 1),
-            "calibratedThreshold": self.threshold,
-            "validation": self.metrics,
-        }
-
-
 class MuleRiskEngine:
     def __init__(self) -> None:
         self.lock = threading.RLock()
@@ -629,14 +206,49 @@ class MuleRiskEngine:
         }
 
     def normalize_transaction(self, payload: dict) -> dict:
-        data = self.generate_transaction(payload)
+        if not isinstance(payload, dict):
+            raise ValueError("Transaction must be a JSON object")
+        for name in ("account", "beneficiary", "device", "phone", "channel", "location", "source", "caseId"):
+            if name not in payload or (name == "caseId" and payload[name] is None):
+                continue
+            if not isinstance(payload[name], str) or not payload[name].strip() or len(payload[name]) > 200:
+                raise ValueError(f"{name} must be a non-empty string of at most 200 characters")
+        if "amount" in payload:
+            if isinstance(payload["amount"], bool):
+                raise ValueError("amount must be a positive finite number")
+            try:
+                amount = float(payload["amount"])
+            except (TypeError, ValueError):
+                raise ValueError("amount must be a positive finite number") from None
+            if not math.isfinite(amount) or amount < 1 or amount > 1e12:
+                raise ValueError("amount must be between 1 and 1000000000000")
+        context = payload.get("context", {})
+        if not isinstance(context, dict):
+            raise ValueError("context must be an object of pre-transaction historical observations")
+        limits = {"averageAmount": (1, 1e12), "hourlyTxnCount": (0, 1e6),
+                  "dailyTxnCount": (0, 1e7), "sharedDeviceAccountCount": (1, 1e6)}
+        for name, value in context.items():
+            if name == "isNewBeneficiary":
+                if not isinstance(value, bool):
+                    raise ValueError("context.isNewBeneficiary must be a boolean")
+            elif name not in limits:
+                raise ValueError(f"Unknown context field: {name}")
+            elif isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not limits[name][0] <= value <= limits[name][1]:
+                raise ValueError(f"Invalid context.{name}")
+        data = self.generate_transaction(payload | ({"amount": amount} if "amount" in payload else {}))
+        data["context"] = context
+        if "amount" in payload:
+            data["amount"] = float(payload["amount"])
+        # Preserve an explicitly absent case instead of randomly inventing one.
+        if "caseId" in payload:
+            data["caseId"] = payload["caseId"]
         data["account"] = str(data["account"]).strip().upper()
         data["beneficiary"] = str(data["beneficiary"]).strip().upper()
         data["device"] = str(data["device"]).strip().upper()
         data["phone"] = str(data["phone"]).strip()
         data["channel"] = str(data["channel"]).strip().upper()
         if data["channel"] not in CHANNELS:
-            data["channel"] = "UPI"
+            raise ValueError("Unsupported payment channel")
         return data
 
     def ingest_transaction(self, payload: dict) -> dict:
@@ -650,7 +262,7 @@ class MuleRiskEngine:
             self.account_risk[scored["account"]] = max(scored["score"], self.account_risk.get(scored["account"], 0))
             if scored.get("caseId"):
                 self.regulatory_hits += 1
-            if scored["score"] >= 66:
+            if scored["action"] in {"Hold transaction for review", "Debit freeze and case escalation"}:
                 self.total_held += scored["amount"]
                 self.alerts.insert(0, self.make_alert(scored))
                 self.alerts = self.alerts[:80]
@@ -663,16 +275,17 @@ class MuleRiskEngine:
             "account": payload.get("account") or random.choice(tuple(WATCHLISTED_ACCOUNTS)),
             "device": payload.get("device") or random.choice(tuple(WATCHLISTED_DEVICES)),
             "phone": payload.get("phone") or random.choice(tuple(WATCHLISTED_PHONES)),
-            "amount": payload.get("amount") or 186000,
+            "amount": payload.get("amount", 186000),
             "channel": payload.get("channel") or "UPI",
             "caseId": payload.get("caseId") or random.choice(CYBER_CASES),
             "source": "government-cyber-alert",
         }
         scored = self.ingest_transaction(incident)
-        self.add_learning_event("RBI cyber alert ingested", "Adaptive confidence increased after RBI feed ingestion; model weights updated", random.randint(4, 9))
+        self.add_learning_event("Demo cyber alert ingested", "Graph and policy signals updated; trained model weights unchanged", 0)
         return scored
 
     def score(self, event: dict) -> dict:
+        started = time.perf_counter()
         graph_score = self.graph.score(event)
         feedback_boost = self.feedback_boost(event)
         features = self.feature_store.features_for(event, graph_score, feedback_boost)
@@ -694,10 +307,10 @@ class MuleRiskEngine:
 
         if score >= 82:
             action = "Debit freeze and case escalation"
-        elif score >= 66 or uncertainty < 0.08:
+        elif score >= 66 or probability >= self.model.threshold or model["requiresReview"]:
             action = "Hold transaction for review"
             if uncertainty < 0.08:
-                reasons.append("Prediction is near calibrated threshold; routed for human review")
+                reasons.append("Prediction is near the validation-selected threshold; routed for human review")
         elif score >= 48:
             action = "Step-up authentication"
         else:
@@ -708,7 +321,13 @@ class MuleRiskEngine:
             "action": action,
             "reasons": reasons,
             "features": {key: round(value, 3) if isinstance(value, float) else value for key, value in features.items()},
-            "modelBreakdown": model | {"modelVersion": self.model.version},
+            "modelBreakdown": model | {
+                "modelVersion": self.model.version,
+                "datasetSha256": self.model.dataset_hash,
+                "inferenceMs": round((time.perf_counter() - started) * 1000, 2),
+                "finalPolicyScore": score,
+            },
+            "executionMode": "demo recommendations; no bank action executed",
         }
 
     def feedback_boost(self, event: dict) -> float:
@@ -717,14 +336,22 @@ class MuleRiskEngine:
 
     def reason_codes(self, event: dict, features: dict, model: dict) -> list[str]:
         reasons: list[str] = []
+        for explanation in model["explanations"][:3]:
+            delta = explanation["probabilityDelta"]
+            if delta > .01:
+                reasons.append(f"ML: {explanation['feature'].replace('_', ' ')} raises model output by {delta * 100:.1f} percentage points versus the safe training median")
+        if model["outOfTrainingRange"]:
+            reasons.append("Limited training coverage: " + ", ".join(model["outOfTrainingRange"]))
+        if model["modelDisagreement"] > .25:
+            reasons.append("Random Forest and Logistic Regression disagree; human review requested")
         if features["watchlist_hit"]:
-            reasons.append("Entity matched a watchlist used by the supervised model")
+            reasons.append("Entity matched an explicit watchlist policy")
         if features["has_regulatory_case"]:
             reasons.append(f"Transaction linked to regulatory/cyber case {event['caseId']}")
         if model["graphScore"] >= 35:
             reasons.append("Graph model found proximity to risky accounts, devices or cases")
-        if model["anomalyScore"] >= 35:
-            reasons.append("Anomaly model detected unusual value, channel or beneficiary behavior")
+        if model["anomalyScore"] >= 60:
+            reasons.append("Isolation Forest found behavior unusual relative to safe training examples")
         if features["unique_accounts_on_device"] >= 3:
             reasons.append("Device fingerprint is shared across multiple accounts")
         if features["account_velocity"] >= 3:
@@ -773,11 +400,11 @@ class MuleRiskEngine:
             if event and label in {"confirmed_fraud", "confirmed_mule"}:
                 for entity in GraphIntelligence.entities(event):
                     self.feedback_risk[entity] = clamp(self.feedback_risk[entity] + 35)
-                self.add_learning_event("Investigator confirmed mule pattern", "Linked-entity risk weights increased", random.randint(2, 6))
+                self.add_learning_event("Investigator confirmed mule pattern", "Linked-entity policy risk increased; ML retraining requires offline evaluation", 0)
             elif event and label == "false_positive":
                 for entity in GraphIntelligence.entities(event):
                     self.feedback_risk[entity] = clamp(self.feedback_risk[entity] - 20)
-                self.add_learning_event("False positive feedback received", "Threshold calibration adjusted", 1)
+                self.add_learning_event("False positive feedback received", "Linked-entity feedback risk reduced; trained model and threshold unchanged", 0)
             return feedback
 
     def check_identity_misuse(self, payload: dict) -> dict:
@@ -825,6 +452,9 @@ class MuleRiskEngine:
 
         result = {
             "id": str(uuid.uuid4()),
+            "dataMode": "synthetic-demo",
+            "mlApplied": False,
+            "dataNotice": "Simulated identity matches; not connected to bank account records or the transaction ML model.",
             "status": status,
             "identifierType": identifier_type,
             "identifierMask": self.mask_identifier(identifier, identifier_type),
